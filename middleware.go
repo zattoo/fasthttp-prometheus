@@ -157,7 +157,12 @@ func (p *Prometheus) registerMetrics() {
 		},
 	)
 
-	p.registry.MustRegister(p.reqCnt, p.reqDur, p.reqSize, p.respSize)
+	if p.registry != nil {
+		p.registry.MustRegister(p.reqCnt, p.reqDur, p.reqSize, p.respSize)
+	} else {
+		prometheus.MustRegister(p.reqCnt, p.reqDur, p.reqSize, p.respSize)
+	}
+
 }
 
 func acquireRequestFromPool() *fasthttp.Request {
