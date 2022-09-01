@@ -25,17 +25,39 @@ type Prometheus struct {
 	reqSize, respSize prometheus.Summary
 	router            *fasthttprouter.Router
 
+	registry  *prometheus.Registry
+	subsystem string
+
 	MetricsPath string
 }
 
-func NewPrometheus(subsystem string) *Prometheus {
+func NewPrometheus(options ...func(*Prometheus)) *Prometheus {
 
 	p := &Prometheus{
 		MetricsPath: defaultMetricPath,
 	}
-	p.registerMetrics(subsystem)
+
+	for _, option := range options {
+		option(p)
+	}
+
+	p.registerMetrics()
 
 	return p
+}
+
+// Registry is an option allowing to set a  *prometheus.Registry with New
+func Registry(r *prometheus.Registry) func(*Prometheus) {
+	return func(p *Prometheus) {
+		p.registry = r
+	}
+}
+
+// Subsystem is an option which allows to set the subsystem when initializing with New
+func Subsystem(sub string) func(*Prometheus) {
+	return func(p *Prometheus) {
+		p.subsystem = sub
+	}
 }
 
 func prometheusHandler() fasthttp.RequestHandler {
@@ -79,7 +101,7 @@ func computeApproximateRequestSize(ctx *fasthttp.Request, out chan int) {
 		s += len(ctx.URI().Path())
 		s += len(ctx.URI().Host())
 	}
-	
+
 	s += len(ctx.Header.Method())
 	s += len("HTTP/1.1")
 
@@ -96,13 +118,13 @@ func computeApproximateRequestSize(ctx *fasthttp.Request, out chan int) {
 	out <- s
 }
 
-func (p *Prometheus) registerMetrics(subsystem string) {
+func (p *Prometheus) registerMetrics() {
 
 	RequestDurationBucket := []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 15, 20, 30, 40, 50, 60}
 
 	p.reqCnt = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "requests_total",
 			Help:      "The HTTP request counts processed.",
 		},
@@ -111,7 +133,7 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 
 	p.reqDur = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "request_duration_seconds",
 			Help:      "The HTTP request duration in seconds.",
 			Buckets:   RequestDurationBucket,
@@ -121,7 +143,7 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 
 	p.reqSize = prometheus.NewSummary(
 		prometheus.SummaryOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "request_size_bytes",
 			Help:      "The HTTP request sizes in bytes.",
 		},
@@ -129,13 +151,13 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 
 	p.respSize = prometheus.NewSummary(
 		prometheus.SummaryOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "response_size_bytes",
 			Help:      "The HTTP response sizes in bytes.",
 		},
 	)
 
-	prometheus.MustRegister(p.reqCnt, p.reqDur, p.reqSize, p.respSize)
+	p.registry.MustRegister(p.reqCnt, p.reqDur, p.reqSize, p.respSize)
 }
 
 func acquireRequestFromPool() *fasthttp.Request {
@@ -143,8 +165,8 @@ func acquireRequestFromPool() *fasthttp.Request {
 
 	if rp == nil {
 		return new(fasthttp.Request)
-	} 
-	
+	}
+
 	frc := rp.(*fasthttp.Request)
 	return frc
 }
