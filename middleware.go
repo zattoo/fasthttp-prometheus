@@ -65,8 +65,11 @@ func (p *Prometheus) WrapHandler(r *fasthttprouter.Router) fasthttp.RequestHandl
 		elapsed := float64(time.Since(start)) / float64(time.Second)
 		respSize := float64(len(ctx.Response.Body()))
 
-		p.reqDur.WithLabelValues(status).Observe(elapsed)
-		p.reqCnt.WithLabelValues(status, string(ctx.Method())).Inc()
+		method := string(ctx.Method())
+		endpoint := string(ctx.Request.URI().Path())
+
+		p.reqDur.WithLabelValues(status, method, endpoint).Observe(elapsed)
+		p.reqCnt.WithLabelValues(status, method, endpoint).Inc()
 		p.reqSize.Observe(float64(<-reqSize))
 		p.respSize.Observe(respSize)
 	}
@@ -79,7 +82,7 @@ func computeApproximateRequestSize(ctx *fasthttp.Request, out chan int) {
 		s += len(ctx.URI().Path())
 		s += len(ctx.URI().Host())
 	}
-	
+
 	s += len(ctx.Header.Method())
 	s += len("HTTP/1.1")
 
@@ -106,7 +109,7 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 			Name:      "requests_total",
 			Help:      "The HTTP request counts processed.",
 		},
-		[]string{"code", "method"},
+		[]string{"code", "method", "endpoint"},
 	)
 
 	p.reqDur = prometheus.NewHistogramVec(
@@ -116,7 +119,7 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 			Help:      "The HTTP request duration in seconds.",
 			Buckets:   RequestDurationBucket,
 		},
-		[]string{"code"},
+		[]string{"code", "method", "endpoint"},
 	)
 
 	p.reqSize = prometheus.NewSummary(
@@ -143,8 +146,8 @@ func acquireRequestFromPool() *fasthttp.Request {
 
 	if rp == nil {
 		return new(fasthttp.Request)
-	} 
-	
+	}
+
 	frc := rp.(*fasthttp.Request)
 	return frc
 }
