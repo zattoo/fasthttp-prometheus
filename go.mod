@@ -1,4 +1,4 @@
-module fasthttpprometheus
+module github.com/zattoo/fasthttp-prometheus
 
 go 1.18
 
