@@ -20,11 +20,11 @@ var (
 type FasthttpHandlerFunc func(*fasthttp.RequestCtx)
 
 type Prometheus struct {
-	reqCnt                     *prometheus.CounterVec
-	reqDur                     *prometheus.HistogramVec
-	reqSize, respSize          prometheus.Summary
-	router                     *fasthttprouter.Router
-	numberOfConcurrentRequests prometheus.Gauge
+	reqCnt            *prometheus.CounterVec
+	reqDur            *prometheus.HistogramVec
+	reqSize, respSize prometheus.Summary
+	router            *fasthttprouter.Router
+	reqConcurrent     prometheus.Gauge
 
 	registry  *prometheus.Registry
 	subsystem string
@@ -71,8 +71,8 @@ func (p *Prometheus) WrapHandler(r *fasthttprouter.Router) fasthttp.RequestHandl
 	r.GET(p.MetricsPath, prometheusHandler())
 
 	return func(ctx *fasthttp.RequestCtx) {
-		p.numberOfConcurrentRequests.Inc()
-		defer p.numberOfConcurrentRequests.Dec()
+		p.reqConcurrent.Inc()
+		defer p.reqConcurrent.Dec()
 
 		if string(ctx.Request.URI().Path()) == defaultMetricPath {
 			r.Handler(ctx)
@@ -164,7 +164,7 @@ func (p *Prometheus) registerMetrics() {
 		},
 	)
 
-	p.numberOfConcurrentRequests = prometheus.NewGauge(prometheus.GaugeOpts{
+	p.reqConcurrent = prometheus.NewGauge(prometheus.GaugeOpts{
 		Subsystem: p.subsystem,
 		Name:      "concurrent_requests",
 		Help:      "Number of concurrent HTTP requests",
@@ -172,7 +172,7 @@ func (p *Prometheus) registerMetrics() {
 	)
 
 	collectors := []prometheus.Collector{
-		p.numberOfConcurrentRequests,
+		p.reqConcurrent,
 		p.reqCnt,
 		p.reqDur,
 		p.reqSize,
