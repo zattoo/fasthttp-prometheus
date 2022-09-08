@@ -26,17 +26,39 @@ type Prometheus struct {
 	router                     *fasthttprouter.Router
 	numberOfConcurrentRequests prometheus.Gauge
 
+	registry  *prometheus.Registry
+	subsystem string
+
 	MetricsPath string
 }
 
-func NewPrometheus(subsystem string) *Prometheus {
+func NewPrometheus(options ...func(*Prometheus)) *Prometheus {
 
 	p := &Prometheus{
 		MetricsPath: defaultMetricPath,
 	}
-	p.registerMetrics(subsystem)
+
+	for _, option := range options {
+		option(p)
+	}
+
+	p.registerMetrics()
 
 	return p
+}
+
+// Registry is an option allowing to set a  *prometheus.Registry with New
+func Registry(r *prometheus.Registry) func(*Prometheus) {
+	return func(p *Prometheus) {
+		p.registry = r
+	}
+}
+
+// Subsystem is an option which allows to set the subsystem when initializing with New
+func Subsystem(sub string) func(*Prometheus) {
+	return func(p *Prometheus) {
+		p.subsystem = sub
+	}
 }
 
 func prometheusHandler() fasthttp.RequestHandler {
@@ -69,8 +91,11 @@ func (p *Prometheus) WrapHandler(r *fasthttprouter.Router) fasthttp.RequestHandl
 		elapsed := float64(time.Since(start)) / float64(time.Second)
 		respSize := float64(len(ctx.Response.Body()))
 
-		p.reqDur.WithLabelValues(status).Observe(elapsed)
-		p.reqCnt.WithLabelValues(status, string(ctx.Method())).Inc()
+		method := string(ctx.Method())
+		endpoint := string(ctx.Request.URI().Path())
+
+		p.reqDur.WithLabelValues(status, method, endpoint).Observe(elapsed)
+		p.reqCnt.WithLabelValues(status, method, endpoint).Inc()
 		p.reqSize.Observe(float64(<-reqSize))
 		p.respSize.Observe(respSize)
 	}
@@ -100,32 +125,32 @@ func computeApproximateRequestSize(ctx *fasthttp.Request, out chan int) {
 	out <- s
 }
 
-func (p *Prometheus) registerMetrics(subsystem string) {
+func (p *Prometheus) registerMetrics() {
 
 	RequestDurationBucket := []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 15, 20, 30, 40, 50, 60}
 
 	p.reqCnt = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "requests_total",
 			Help:      "The HTTP request counts processed.",
 		},
-		[]string{"code", "method"},
+		[]string{"code", "method", "endpoint"},
 	)
 
 	p.reqDur = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "request_duration_seconds",
 			Help:      "The HTTP request duration in seconds.",
 			Buckets:   RequestDurationBucket,
 		},
-		[]string{"code"},
+		[]string{"code", "method", "endpoint"},
 	)
 
 	p.reqSize = prometheus.NewSummary(
 		prometheus.SummaryOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "request_size_bytes",
 			Help:      "The HTTP request sizes in bytes.",
 		},
@@ -133,26 +158,32 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 
 	p.respSize = prometheus.NewSummary(
 		prometheus.SummaryOpts{
-			Subsystem: subsystem,
+			Subsystem: p.subsystem,
 			Name:      "response_size_bytes",
 			Help:      "The HTTP response sizes in bytes.",
 		},
 	)
 
 	p.numberOfConcurrentRequests = prometheus.NewGauge(prometheus.GaugeOpts{
-		Subsystem: subsystem,
+		Subsystem: p.subsystem,
 		Name:      "concurrent_requests",
 		Help:      "Number of concurrent requests",
 	},
 	)
 
-	prometheus.MustRegister(
+	collectors := []prometheus.Collector{
 		p.numberOfConcurrentRequests,
 		p.reqCnt,
 		p.reqDur,
 		p.reqSize,
 		p.respSize,
-	)
+	}
+
+	if p.registry != nil {
+		p.registry.MustRegister(collectors...)
+	} else {
+		prometheus.MustRegister(collectors...)
+	}
 }
 
 func acquireRequestFromPool() *fasthttp.Request {
