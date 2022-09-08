@@ -167,7 +167,7 @@ func (p *Prometheus) registerMetrics() {
 	p.numberOfConcurrentRequests = prometheus.NewGauge(prometheus.GaugeOpts{
 		Subsystem: p.subsystem,
 		Name:      "concurrent_requests",
-		Help:      "Number of concurrent requests",
+		Help:      "Number of concurrent HTTP requests",
 	},
 	)
 
