@@ -61,14 +61,18 @@ func Subsystem(sub string) func(*Prometheus) {
 	}
 }
 
-func prometheusHandler() fasthttp.RequestHandler {
-	return fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler())
+func prometheusHandler(registry *prometheus.Registry) fasthttp.RequestHandler {
+	if registry == nil {
+		return fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler())
+	}
+
+	return fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 }
 
 func (p *Prometheus) WrapHandler(r *fasthttprouter.Router) fasthttp.RequestHandler {
 
 	// Setting prometheus metrics handler
-	r.GET(p.MetricsPath, prometheusHandler())
+	r.GET(p.MetricsPath, prometheusHandler(p.registry))
 
 	return func(ctx *fasthttp.RequestCtx) {
 		p.reqConcurrent.Inc()
